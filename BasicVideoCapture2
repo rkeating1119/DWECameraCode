@@ -1,0 +1,51 @@
+import cv2
+import os
+import time
+
+CAM_IDX = 0
+WIDTH = 1920
+HEIGHT = 1080
+MJPG = cv2.VideoWriter_fourcc(*'MJPG')
+
+VIDEO_FOLDER = 'recorded_videos'
+if not os.path.exists(VIDEO_FOLDER):
+    os.makedirs(VIDEO_FOLDER)
+
+# Filename with timestamp
+filename = os.path.join(VIDEO_FOLDER, f'video_{time.strftime("%Y%m%d_%H%M%S")}.avi')
+
+# Setup capture
+exploreHD = cv2.VideoCapture(CAM_IDX)
+exploreHD.set(cv2.CAP_PROP_FOURCC, MJPG)
+exploreHD.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+exploreHD.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+
+# Optional: Get actual FPS (hardware-dependent)
+fps = exploreHD.get(cv2.CAP_PROP_FPS)
+if fps == 0: fps = 30  # Fallback in case it can't be read
+
+# Setup writer
+video_out = cv2.VideoWriter(filename, MJPG, fps, (WIDTH, HEIGHT))
+
+exploreHD.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+exploreHD.set(cv2.CAP_PROP_EXPOSURE, 90)
+
+if not exploreHD.isOpened():
+    print('\nError - could not open video device.\n')
+    exit(0)
+
+print(f"[INFO] Recording to {filename}")
+
+while True:
+    success, frame = exploreHD.read()
+    if success:
+        cv2.imshow('exploreHD', frame)
+        video_out.write(frame)  # Save frame to video
+
+    k = cv2.waitKey(1)
+    if k == ord('q'):
+        break
+
+exploreHD.release()
+video_out.release()
+cv2.destroyAllWindows()
