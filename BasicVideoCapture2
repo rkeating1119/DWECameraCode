@@ -1,51 +1,68 @@
 import cv2
-import os
 import time
+import os
 
+# === CONFIGURATION ===
 CAM_IDX = 0
-WIDTH = 1920
-HEIGHT = 1080
+WIDTH = 1600
+HEIGHT = 1200
+FRAMERATE = 10  # Lower framerate = smaller files
 MJPG = cv2.VideoWriter_fourcc(*'MJPG')
-
+CLIP_DURATION = 30 * 60  # 30 minutes in seconds
 VIDEO_FOLDER = 'recorded_videos'
+
+# === SETUP FOLDER ===
 if not os.path.exists(VIDEO_FOLDER):
     os.makedirs(VIDEO_FOLDER)
 
-# Filename with timestamp
-filename = os.path.join(VIDEO_FOLDER, f'video_{time.strftime("%Y%m%d_%H%M%S")}.avi')
+# === CAMERA SETUP ===
+cam = cv2.VideoCapture(CAM_IDX)
+cam.set(cv2.CAP_PROP_FOURCC, MJPG)
+cam.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+cam.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+cam.set(cv2.CAP_PROP_FPS, FRAMERATE)
+cam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
+cam.set(cv2.CAP_PROP_EXPOSURE, 90)
 
-# Setup capture
-exploreHD = cv2.VideoCapture(CAM_IDX)
-exploreHD.set(cv2.CAP_PROP_FOURCC, MJPG)
-exploreHD.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-exploreHD.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+if not cam.isOpened():
+    print("Error: Could not open camera.")
+    exit(1)
 
-# Optional: Get actual FPS (hardware-dependent)
-fps = exploreHD.get(cv2.CAP_PROP_FPS)
-if fps == 0: fps = 30  # Fallback in case it can't be read
+# === HELPERS ===
+def generate_filename():
+    return os.path.join(
+        VIDEO_FOLDER,
+        f"pnet_{time.strftime('%Y%m%d_%H%M%S')}.avi"
+    )
 
-# Setup writer
-video_out = cv2.VideoWriter(filename, MJPG, fps, (WIDTH, HEIGHT))
+# === START RECORDING LOOP ===
+print("Pnet cam started. Press Ctrl+C to stop.")
+clip_start_time = time.time()
+filename = generate_filename()
+video_out = cv2.VideoWriter(filename, MJPG, FRAMERATE, (WIDTH, HEIGHT))
+print(f"Recording: {filename}")
 
-exploreHD.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
-exploreHD.set(cv2.CAP_PROP_EXPOSURE, 90)
+try:
+    while True:
+        ret, frame = cam.read()
+        if not ret:
+            print("Frame capture failed.")
+            continue
 
-if not exploreHD.isOpened():
-    print('\nError - could not open video device.\n')
-    exit(0)
+        video_out.write(frame)
 
-print(f"[INFO] Recording to {filename}")
+        # Check if it's time to start a new clip
+        if time.time() - clip_start_time > CLIP_DURATION:
+            video_out.release()
+            filename = generate_filename()
+            video_out = cv2.VideoWriter(filename, MJPG, FRAMERATE, (WIDTH, HEIGHT))
+            clip_start_time = time.time()
+            print(f"New clip started: {filename}")
 
-while True:
-    success, frame = exploreHD.read()
-    if success:
-        cv2.imshow('exploreHD', frame)
-        video_out.write(frame)  # Save frame to video
+except KeyboardInterrupt:
+    print("\nPnet cam stopped by user.")
 
-    k = cv2.waitKey(1)
-    if k == ord('q'):
-        break
-
-exploreHD.release()
-video_out.release()
-cv2.destroyAllWindows()
+finally:
+    cam.release()
+    video_out.release()
+    cv2.destroyAllWindows()
