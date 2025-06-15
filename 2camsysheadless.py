@@ -15,7 +15,7 @@ FPS = 30
 MJPG = cv2.VideoWriter_fourcc(*'MJPG')
 
 # Base Output Directory
-BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
+BASE_OUTPUT_DIR = "/home/summerfieldwork4/Main/savedrecordings"
 
 # Recording duration (in seconds)
 INTERVAL_SECONDS = 1800  # 30 minutes
