@@ -1,109 +1,88 @@
 import cv2
+import os
 import time
 import datetime
-import os
+import threading
 
-# -- Camera Parameters --
+# SETTINGS
+FPS = 8
+FRAME_INTERVAL = 1.0 / FPS
+WIDTH, HEIGHT = 1280, 720  # Try 640x480 if too chunky
+CODEC = cv2.VideoWriter_fourcc(*'MJPG')  # or *'XVID'
+INTERVAL_SECONDS = 1800  # 30 min clips
+BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
+
+# CAMERA CONFIG
 CAM_DEVICE_MAP = {
     1: 0,  # Camera 1 -> /dev/video0
     2: 2   # Camera 2 -> /dev/video2
 }
 
-# Use lower resolution for smoother performance on Raspberry Pi
-WIDTH = 1280  # Consider 640 for best performance
-HEIGHT = 720
-FPS = 5  # Consistent and realistic for Pi
-FRAME_INTERVAL = 1.0 / FPS
-
-# Try 'XVID' for better compression performance on some systems
-CODEC = cv2.VideoWriter_fourcc(*'MJPG')
-
-# Base Output Directory
-BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
-
-# Recording duration (in seconds)
-INTERVAL_SECONDS = 1800  # 30 minutes
-
 def get_output_filename(label):
-    cam_folder = f"cam{label}"
-    output_dir = os.path.join(BASE_OUTPUT_DIR, cam_folder)
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    return os.path.join(output_dir, f"recording_cam{label}_{timestamp}.avi")
+    folder = os.path.join(BASE_OUTPUT_DIR, f"cam{label}")
+    os.makedirs(folder, exist_ok=True)
+    ts = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    return os.path.join(folder, f"recording_cam{label}_{ts}.avi")
 
-print('Starting video recording from both cameras :}')
-
-cams = {}
-outs = {}
-start_times = {}
-active_cams = {1, 2}
-
-# Initialize both cameras
-for label, device_index in CAM_DEVICE_MAP.items():
-    cam = cv2.VideoCapture(device_index)
-    cam.set(cv2.CAP_PROP_FOURCC, CODEC)
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
+def record_camera(label, device_index):
+    cap = cv2.VideoCapture(device_index)
+    cap.set(cv2.CAP_PROP_FOURCC, CODEC)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     time.sleep(2)
 
-    if not cam.isOpened():
-        print(f'Error: Could not open Camera {label} (device {device_index}) :{{')
-        cams[label] = None
-        outs[label] = None
-        continue
+    if not cap.isOpened():
+        print(f"Camera {label} failed to open.")
+        return
 
     filename = get_output_filename(label)
     out = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
-    print(f"Recording started on Camera {label}: {filename}")
+    print(f"[CAM {label}] Recording started: {filename}")
+    start_time = time.time()
 
-    cams[label] = cam
-    outs[label] = out
-    start_times[label] = time.time()
+    try:
+        while True:
+            loop_start = time.time()
 
-# Main recording loop
-while active_cams:
-    loop_start = time.time()
+            ret, frame = cap.read()
+            if not ret:
+                print(f"[CAM {label}] Frame grab failed.")
+                break
 
-    for label in list(active_cams):
-        cam = cams[label]
-        out = outs[label]
-        if cam is None or out is None:
-            active_cams.discard(label)
-            continue
+            timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cv2.putText(frame, f'Camera {label}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
+                        1, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(frame, timestamp, (10, HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
-        ret, frame = cam.read()
-        if not ret:
-            print(f'Error: Frame capture failed on Camera {label} :{{')
-            active_cams.discard(label)
-            continue
+            out.write(frame)
 
-        # Overlay timestamp
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        cv2.putText(frame, f'Recording - Camera {label}', (10, 50), cv2.FONT_HERSHEY_SIMPLEX,
-                    1, (0, 255, 0), 2, cv2.LINE_AA)
-        cv2.putText(frame, timestamp, (10, HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7, (255, 255, 255), 2, cv2.LINE_AA)
+            # Clip rotation
+            if time.time() - start_time >= INTERVAL_SECONDS:
+                out.release()
+                filename = get_output_filename(label)
+                out = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
+                start_time = time.time()
+                print(f"[CAM {label}] New clip started: {filename}")
 
-        out.write(frame)
+            # Throttle FPS
+            elapsed = time.time() - loop_start
+            time.sleep(max(0, FRAME_INTERVAL - elapsed))
 
-        # Check if it's time to rotate to a new file
-        if time.time() - start_times[label] >= INTERVAL_SECONDS:
-            out.release()
-            filename = get_output_filename(label)
-            outs[label] = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
-            start_times[label] = time.time()
-            print(f"Started new clip for Camera {label}: {filename}")
+    except KeyboardInterrupt:
+        print(f"[CAM {label}] Interrupted.")
+    finally:
+        cap.release()
+        out.release()
+        print(f"[CAM {label}] Recording stopped.")
 
-    # Delay to maintain consistent FPS across all cameras
-    loop_elapsed = time.time() - loop_start
-    sleep_time = max(0, FRAME_INTERVAL - loop_elapsed)
-    time.sleep(sleep_time)
+# --- Run each camera in its own thread ---
+threads = []
+for label, device_index in CAM_DEVICE_MAP.items():
+    t = threading.Thread(target=record_camera, args=(label, device_index))
+    t.start()
+    threads.append(t)
 
-# Cleanup
-for label in cams:
-    if cams[label]:
-        cams[label].release()
-    if outs[label]:
-        outs[label].release()
-
-print("All recordings finished. Exiting.")
+# Wait for all threads (this will block unless interrupted)
+for t in threads:
+    t.join()
