@@ -9,11 +9,14 @@ CAM_DEVICE_MAP = {
     2: 2   # Camera 2 -> /dev/video2
 }
 
-WIDTH = 1920
-HEIGHT = 1080
-FPS = 5  # Fixed low FPS for consistent performance on Pi
+# Use lower resolution for smoother performance on Raspberry Pi
+WIDTH = 1280  # Consider 640 for best performance
+HEIGHT = 720
+FPS = 5  # Consistent and realistic for Pi
 FRAME_INTERVAL = 1.0 / FPS
-MJPG = cv2.VideoWriter_fourcc(*'MJPG')
+
+# Try 'XVID' for better compression performance on some systems
+CODEC = cv2.VideoWriter_fourcc(*'MJPG')
 
 # Base Output Directory
 BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
@@ -33,13 +36,12 @@ print('Starting video recording from both cameras :}')
 cams = {}
 outs = {}
 start_times = {}
-last_frame_time = {}
 active_cams = {1, 2}
 
-# Initialize cameras
+# Initialize both cameras
 for label, device_index in CAM_DEVICE_MAP.items():
     cam = cv2.VideoCapture(device_index)
-    cam.set(cv2.CAP_PROP_FOURCC, MJPG)
+    cam.set(cv2.CAP_PROP_FOURCC, CODEC)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
     time.sleep(2)
@@ -51,16 +53,17 @@ for label, device_index in CAM_DEVICE_MAP.items():
         continue
 
     filename = get_output_filename(label)
-    out = cv2.VideoWriter(filename, MJPG, FPS, (WIDTH, HEIGHT))
+    out = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
     print(f"Recording started on Camera {label}: {filename}")
 
     cams[label] = cam
     outs[label] = out
     start_times[label] = time.time()
-    last_frame_time[label] = 0
 
 # Main recording loop
 while active_cams:
+    loop_start = time.time()
+
     for label in list(active_cams):
         cam = cams[label]
         out = outs[label]
@@ -68,17 +71,11 @@ while active_cams:
             active_cams.discard(label)
             continue
 
-        current_time = time.time()
-        if current_time - last_frame_time[label] < FRAME_INTERVAL:
-            continue  # Skip until it's time for the next frame
-
         ret, frame = cam.read()
         if not ret:
             print(f'Error: Frame capture failed on Camera {label} :{{')
             active_cams.discard(label)
             continue
-
-        last_frame_time[label] = current_time
 
         # Overlay timestamp
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -90,12 +87,17 @@ while active_cams:
         out.write(frame)
 
         # Check if it's time to rotate to a new file
-        if current_time - start_times[label] >= INTERVAL_SECONDS:
+        if time.time() - start_times[label] >= INTERVAL_SECONDS:
             out.release()
             filename = get_output_filename(label)
-            outs[label] = cv2.VideoWriter(filename, MJPG, FPS, (WIDTH, HEIGHT))
-            start_times[label] = current_time
+            outs[label] = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
+            start_times[label] = time.time()
             print(f"Started new clip for Camera {label}: {filename}")
+
+    # Delay to maintain consistent FPS across all cameras
+    loop_elapsed = time.time() - loop_start
+    sleep_time = max(0, FRAME_INTERVAL - loop_elapsed)
+    time.sleep(sleep_time)
 
 # Cleanup
 for label in cams:
