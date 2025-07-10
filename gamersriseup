@@ -7,7 +7,7 @@ import threading
 # === CONFIGURATION ===
 FPS = 30
 FRAME_INTERVAL = 1.0 / FPS
-WIDTH, HEIGHT = 1280, 720
+WIDTH, HEIGHT = 640, 480
 CODEC = cv2.VideoWriter_fourcc(*'MJPG')
 INTERVAL_SECONDS = 1800  # 30 minutes
 BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
