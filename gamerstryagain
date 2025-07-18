@@ -9,20 +9,15 @@ FRAME_INTERVAL = 1.0 / FPS
 WIDTH, HEIGHT = 640, 480
 CODEC = cv2.VideoWriter_fourcc(*'MJPG')
 INTERVAL_SECONDS = 1800  # 30 minutes
-BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings"
-DEVICE_INDEX = 0  # /dev/video0
-CAM_LABEL = 1  # "Camera 1"
+BASE_OUTPUT_DIR = "/home/summerfieldwork/Main/savedrecordings/cam1"
 
-
-def get_output_filename(label):
-    folder = os.path.join(BASE_OUTPUT_DIR, f"cam{label}")
-    os.makedirs(folder, exist_ok=True)
+def get_output_filename():
+    os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    return os.path.join(folder, f"recording_cam{label}_{timestamp}.avi")
+    return os.path.join(BASE_OUTPUT_DIR, f"recording_cam1_{timestamp}.avi")
 
-
-def record_camera(label, device_index):
-    cam = cv2.VideoCapture(device_index, cv2.CAP_V4L2)
+def main():
+    cam = cv2.VideoCapture(0, cv2.CAP_V4L2)
     cam.set(cv2.CAP_PROP_FOURCC, CODEC)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
@@ -30,48 +25,47 @@ def record_camera(label, device_index):
     time.sleep(2)
 
     if not cam.isOpened():
-        print(f"[ERROR] Could not open Camera {label} at /dev/video{device_index}")
+        print("[ERROR] Could not open camera at /dev/video0")
         return
 
-    filename = get_output_filename(label)
+    filename = get_output_filename()
     out = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
-    print(f"[INFO] Camera {label} recording started: {filename}")
+    print(f"[INFO] Recording started: {filename}")
     start_time = time.time()
 
-    # FPS counter
     frame_count = 0
     fps_display = 0
     fps_timer = time.time()
+    next_frame_time = time.time()
 
     try:
         while True:
-            loop_start = time.time()
+            now = time.time()
+            if now < next_frame_time:
+                time.sleep(next_frame_time - now)
+            next_frame_time += FRAME_INTERVAL
 
             ret, frame = cam.read()
             if not ret:
-                print(f"[ERROR] Camera {label} failed to capture frame.")
-                break
+                print("[ERROR] Failed to capture frame.")
+                continue
 
-            frame_count += 1
-
-            # Update FPS every second
-            if time.time() - fps_timer >= 1.0:
-                fps_display = frame_count
-                frame_count = 0
-                fps_timer = time.time()
-
-            # === Overlay ===
+            # === Overlay timestamp and info ===
             timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            cv2.putText(frame, f"Camera {label}", (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
+            cv2.putText(frame, "Camera 1", (10, 40), cv2.FONT_HERSHEY_SIMPLEX,
                         1.0, (0, 255, 0), 2, cv2.LINE_AA)
             cv2.putText(frame, timestamp, (10, HEIGHT - 20), cv2.FONT_HERSHEY_SIMPLEX,
                         0.7, (255, 255, 255), 2, cv2.LINE_AA)
 
             # FPS overlay
-            fps_color = (0, 255, 255)
-            cv2.putText(frame, f"{fps_display} FPS", (WIDTH - 150, 40), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.9, fps_color, 2, cv2.LINE_AA)
+            frame_count += 1
+            if time.time() - fps_timer >= 1.0:
+                fps_display = frame_count
+                frame_count = 0
+                fps_timer = time.time()
+
+            cv2.putText(frame, f"{fps_display} FPS", (WIDTH - 150, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2, cv2.LINE_AA)
 
             if fps_display < 25:
                 cv2.putText(frame, "LOW FPS", (WIDTH - 150, 70),
@@ -82,22 +76,17 @@ def record_camera(label, device_index):
             # Rotate output file every interval
             if time.time() - start_time >= INTERVAL_SECONDS:
                 out.release()
-                filename = get_output_filename(label)
+                filename = get_output_filename()
                 out = cv2.VideoWriter(filename, CODEC, FPS, (WIDTH, HEIGHT))
                 start_time = time.time()
-                print(f"[INFO] Camera {label} started new file: {filename}")
-
-            elapsed = time.time() - loop_start
-            time.sleep(max(0, FRAME_INTERVAL - elapsed))
+                print(f"[INFO] Started new file: {filename}")
 
     except KeyboardInterrupt:
-        print(f"[INFO] Camera {label} interrupted by user.")
+        print("[INFO] Interrupted by user.")
     finally:
         cam.release()
         out.release()
-        print(f"[INFO] Camera {label} stopped and resources released.")
+        print("[INFO] Camera stopped and resources released.")
 
-
-# === MAIN ===
 if __name__ == "__main__":
-    record_camera(CAM_LABEL, DEVICE_INDEX)
+    main()
